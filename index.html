@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generador de Acordes Pro con Sonido de Guitarra Real</title>
+    <title>Generador de Acordes Pro con Metrónomo Visual</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #263238;
+            background-color: #263238; /* Fondo un poco más oscuro para resaltar las luces */
             color: #ecf0f1;
             display: flex;
             flex-direction: column;
@@ -18,6 +18,7 @@
             overflow: hidden;
         }
 
+        /* --- METRÓNOMO VISUAL (LUCES LED) --- */
         #lights-container {
             display: flex;
             gap: 20px;
@@ -31,21 +32,24 @@
             width: 25px;
             height: 25px;
             border-radius: 50%;
-            background-color: #455a64;
+            background-color: #455a64; /* Color apagado */
             box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
-            transition: all 0.05s ease;
+            transition: all 0.05s ease; /* Transición muy rápida para el parpadeo */
         }
 
+        /* Luz del Acento (Primer tiempo - Naranja/Rojo) */
         .light.active-accent {
             background-color: #ff5722; 
             box-shadow: 0 0 20px #ff5722, inset 0 2px 4px rgba(255,255,255,0.4);
         }
 
+        /* Luces de relleno (Tiempos 2, 3, 4... - Amarillo) */
         .light.active-beat {
             background-color: #ffeb3b; 
             box-shadow: 0 0 20px #ffeb3b, inset 0 2px 4px rgba(255,255,255,0.4);
         }
 
+        /* --- CONTENEDOR DE ACORDES --- */
         #chord-container {
             display: flex;
             flex-direction: column; 
@@ -79,6 +83,7 @@
             to { transform: scale(1) translateY(0); opacity: 0.8; }
         }
 
+        /* --- CONTROLES INFERIORES --- */
         .controls {
             background-color: #37474f;
             padding: 20px;
@@ -89,7 +94,7 @@
             align-items: center;
             flex-wrap: wrap;
             justify-content: center;
-            max-width: 650px;
+            max-width: 600px;
         }
 
         .input-group {
@@ -119,6 +124,7 @@
             outline: none;
         }
 
+        /* Diseño del slider de volumen */
         input[type="range"] {
             width: 100px;
             cursor: pointer;
@@ -145,18 +151,14 @@
         
         #stop-btn { background-color: #c0392b; color: white; }
         #stop-btn:hover { background-color: #e74c3c; transform: translateY(-2px); }
-        
-        #loading-status {
-            font-size: 0.9rem;
-            color: #f39c12;
-            margin-top: 10px;
-            font-weight: bold;
-        }
     </style>
 </head>
 <body>
 
-    <div id="lights-container"></div>
+    <!-- Nuevo contenedor para los LEDs -->
+    <div id="lights-container">
+        <!-- Las luces se insertan aquí vía JavaScript -->
+    </div>
 
     <div id="chord-container">
         <div id="active-chord" class="chord">🎸</div>
@@ -175,8 +177,8 @@
         </div>
 
         <div class="input-group">
-            <label for="vol-input">Volumen Guitarra</label>
-            <input type="range" id="vol-input" min="0" max="1" step="0.05" value="0.8">
+            <label for="vol-input">Volumen Acorde</label>
+            <input type="range" id="vol-input" min="0" max="1" step="0.05" value="0.7">
         </div>
         
         <div class="button-group">
@@ -184,8 +186,6 @@
             <button id="stop-btn">Detener</button>
         </div>
     </div>
-    
-    <div id="loading-status">Cargando muestras de guitarra real...</div>
 
     <script>
         const chords = [
@@ -200,28 +200,17 @@
         let currentBeat = 1;
         let totalBeats = 4;
         
-        let audioCtx;
-        let guitarBuffers = {};
-        let isLoaded = false;
+        let audioCtx; 
 
-        // URLs públicas de notas de guitarra limpia (Archivos de muestra de alta fidelidad)
-        // Usamos notas base para construir cualquier acorde mayor o menor mediante transporte de tono
-        const sampleUrls = {
-            'C': 'https://tonejs.github.io/audio/salamander/C4.mp3',
-            'D': 'https://tonejs.github.io/audio/salamander/D4.mp3',
-            'E': 'https://tonejs.github.io/audio/salamander/E4.mp3',
-            'F': 'https://tonejs.github.io/audio/salamander/F4.mp3',
-            'G': 'https://tonejs.github.io/audio/salamander/G4.mp3',
-            'A': 'https://tonejs.github.io/audio/salamander/A4.mp3',
-            'B': 'https://tonejs.github.io/audio/salamander/B4.mp3'
-        };
-
-        const statusDiv = document.getElementById('loading-status');
+        // Referencias del DOM
+        const lightsContainer = document.getElementById('lights-container');
+        const activeDisplay = document.getElementById('active-chord');
+        const nextDisplay = document.getElementById('next-chord');
+        const inputBpm = document.getElementById('bpm-input');
+        const inputBeats = document.getElementById('beats-input');
+        const inputVol = document.getElementById('vol-input');
         const btnStart = document.getElementById('start-btn');
-
-        // Deshabilitar botón de inicio hasta que carguen los audios
-        btnStart.disabled = true;
-        btnStart.style.opacity = '0.5';
+        const btnStop = document.getElementById('stop-btn');
 
         function initAudio() {
             if (!audioCtx) {
@@ -232,53 +221,41 @@
             }
         }
 
-        // Cargar las muestras de guitarra de manera asíncrona al abrir la página
-        async function loadSamples() {
-            initAudio();
-            for (let note in sampleUrls) {
-                try {
-                    const response = await fetch(sampleUrls[note]);
-                    const arrayBuffer = await response.arrayBuffer();
-                    guitarBuffers[note] = await audioCtx.decodeAudioData(arrayBuffer);
-                } catch (e) {
-                    console.error("Error cargando muestra: " + note, e);
-                }
+        // --- DIBUJAR LAS LUCES LED ---
+        function setupLights() {
+            lightsContainer.innerHTML = ''; // Limpiamos las luces anteriores
+            for (let i = 0; i < totalBeats; i++) {
+                const light = document.createElement('div');
+                light.className = 'light';
+                lightsContainer.appendChild(light);
             }
-            isLoaded = true;
-            statusDiv.innerText = "¡Guitarra lista para tocar!";
-            statusDiv.style.color = "#2ecc71";
-            btnStart.disabled = false;
-            btnStart.style.opacity = '1';
         }
 
-        window.addEventListener('click', () => {
-            if (!audioCtx) loadSamples();
-        }, { once: true });
+        // --- ACTUALIZAR EL ESTADO DE LAS LUCES ---
+        function updateLights() {
+            const lights = document.querySelectorAll('.light');
+            lights.forEach((light, index) => {
+                // Apagamos todas primero
+                light.classList.remove('active-accent', 'active-beat');
+                
+                // Encendemos la que corresponde al pulso actual (currentBeat va de 1 en adelante, index de 0)
+                if (index === currentBeat - 1) {
+                    if (index === 0) {
+                        light.classList.add('active-accent'); // Primera luz (Naranja)
+                    } else {
+                        light.classList.add('active-beat'); // Demás luces (Amarillo)
+                    }
+                }
+            });
+        }
 
-        // Mapeo de notas raíz y sus intervalos relativos en semitonos para formar acordes
-        const noteMap = {
-            'C': { base: 'C', semitones: 0 },
-            'C#': { base: 'C', semitones: 1 },
-            'Db': { base: 'C', semitones: 1 },
-            'D': { base: 'D', semitones: 0 },
-            'D#': { base: 'D', semitones: 1 },
-            'Eb': { base: 'D', semitones: 1 },
-            'E': { base: 'E', semitones: 0 },
-            'F': { base: 'F', semitones: 0 },
-            'F#': { base: 'F', semitones: 1 },
-            'Gb': { base: 'F', semitones: 1 },
-            'G': { base: 'G', semitones: 0 },
-            'G#': { base: 'G', semitones: 1 },
-            'Ab': { base: 'G', semitones: 1 },
-            'A': { base: 'A', semitones: 0 },
-            'A#': { base: 'A', semitones: 1 },
-            'Bb': { base: 'A', semitones: 1 },
-            'B': { base: 'B', semitones: 0 }
+        const midiNotes = {
+            'C': 48, 'C#': 49, 'Db': 49, 'D': 50, 'Eb': 51, 'D#': 51, 
+            'E': 52, 'F': 53, 'F#': 54, 'Gb': 54, 'G': 55, 'G#': 56, 
+            'Ab': 56, 'A': 57, 'Bb': 58, 'A#': 58, 'B': 59
         };
 
-        function playRealGuitarChord(chordName) {
-            if (!isLoaded || !audioCtx) return;
-
+        function getChordFrequencies(chordName) {
             let rootText = '';
             let isMinor = false;
             
@@ -289,84 +266,63 @@
                 rootText = chordName[0];
                 isMinor = chordName.includes('m');
             }
-
-            const chordInfo = noteMap[rootText];
-            if (!chordInfo) return;
-
-            // Intervalos del acorde (Tónica, Tercera Mayor/Menor, Quinta) en semitonos
+            
+            const rootMidi = midiNotes[rootText];
             const intervals = isMinor ? [0, 3, 7] : [0, 4, 7];
-            const globalVolume = parseFloat(document.getElementById('vol-input').value);
-
-            // Reproducimos cada nota del acorde con un pequeño retraso estilo rasgueo de guitarra
-            intervals.forEach((interval, index) => {
-                setTimeout(() => {
-                    const source = audioCtx.createBufferSource();
-                    const gainNode = audioCtx.createGain();
-
-                    // Seleccionamos la muestra base más cercana y aplicamos cambio de tono (playbackRate)
-                    // 1 semitono = Math.pow(2, 1/12)
-                    const totalSemitones = chordInfo.semitones + interval;
-                    
-                    // Usamos la muestra base de 'A' o 'C' según corresponda
-                    source.buffer = guitarBuffers[chordInfo.base];
-                    if(!source.buffer) return;
-
-                    source.playbackRate.value = Math.pow(2, totalSemitones / 12);
-
-                    gainNode.gain.setValueAtTime(globalVolume / 2.5, audioCtx.currentTime);
-                    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 2.0);
-
-                    source.connect(gainNode);
-                    gainNode.connect(audioCtx.destination);
-
-                    source.start();
-                }, index * 25); // Rasgueo de 25ms entre cuerda y cuerda
+            
+            return intervals.map(interval => {
+                const midi = rootMidi + interval;
+                return 440 * Math.pow(2, (midi - 69) / 12);
             });
         }
 
-        function playMetronomeClick() {
+        function playSound(isFirstBeat, chordName) {
             if (!audioCtx) return;
             const t = audioCtx.currentTime;
-            const osc = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            
-            osc.type = 'sine';
-            osc.frequency.value = 700; 
-            
-            gainNode.gain.setValueAtTime(0.2, t);
-            gainNode.gain.exponentialRampToValueAtTime(0.001, t + 0.08); 
-            
-            osc.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            
-            osc.start(t);
-            osc.stop(t + 0.08);
-        }
 
-        const lightsContainer = document.getElementById('lights-container');
-        const activeDisplay = document.getElementById('active-chord');
-        const nextDisplay = document.getElementById('next-chord');
-        const inputBpm = document.getElementById('bpm-input');
-        const inputBeats = document.getElementById('beats-input');
+            // Obtenemos el nivel de volumen del slider (de 0.0 a 1.0)
+            const globalVolume = parseFloat(inputVol.value);
 
-        function setupLights() {
-            lightsContainer.innerHTML = '';
-            for (let i = 0; i < totalBeats; i++) {
-                const light = document.createElement('div');
-                light.className = 'light';
-                lightsContainer.appendChild(light);
+            if (isFirstBeat && chordName) {
+                const frequencies = getChordFrequencies(chordName);
+                
+                frequencies.forEach(freq => {
+                    const osc = audioCtx.createOscillator();
+                    const gainNode = audioCtx.createGain();
+                    
+                    osc.type = 'triangle'; 
+                    osc.frequency.value = freq;
+                    
+                    // Dividimos el volumen entre 3 para que al sumar las 3 notas del acorde no se distorsione (clipping)
+                    const oscVolume = globalVolume / 3; 
+
+                    gainNode.gain.setValueAtTime(0, t);
+                    gainNode.gain.linearRampToValueAtTime(oscVolume, t + 0.05); 
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, t + 1.5); 
+                    
+                    osc.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+                    
+                    osc.start(t);
+                    osc.stop(t + 1.5);
+                });
+            } else {
+                const osc = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                
+                osc.type = 'sine';
+                osc.frequency.value = 700; 
+                
+                // El clic de relleno siempre suena bajito para no opacar tu guitarra
+                gainNode.gain.setValueAtTime(0.2, t);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, t + 0.1); 
+                
+                osc.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                
+                osc.start(t);
+                osc.stop(t + 0.1);
             }
-        }
-
-        function updateLights() {
-            const lights = document.querySelectorAll('.light');
-            lights.forEach((light, index) => {
-                light.classList.remove('active-accent', 'active-beat');
-                if (index === currentBeat - 1) {
-                    if (index === 0) light.classList.add('active-accent');
-                    else light.classList.add('active-beat');
-                }
-            });
         }
 
         function getRandomChord() {
@@ -379,6 +335,7 @@
 
             activeDisplay.style.animation = 'none';
             nextDisplay.style.animation = 'none';
+            
             void activeDisplay.offsetWidth; 
 
             activeDisplay.innerText = currentActiveChord;
@@ -389,13 +346,10 @@
         }
 
         function tick() {
-            if (currentBeat === 1) {
-                shiftChords();
-                playRealGuitarChord(currentActiveChord); // Toca el acorde real de guitarra
-            } else {
-                playMetronomeClick(); // Toca el clic normal
-            }
-            updateLights();
+            if (currentBeat === 1) shiftChords();
+            
+            updateLights(); // Cambiamos las luces LED
+            playSound(currentBeat === 1, currentActiveChord);
 
             currentBeat++;
             if (currentBeat > totalBeats) currentBeat = 1;
@@ -403,15 +357,18 @@
 
         btnStart.addEventListener('click', () => {
             initAudio(); 
+
             if (intervalId) clearInterval(intervalId);
 
             const bpm = parseInt(inputBpm.value);
             totalBeats = parseInt(inputBeats.value);
 
             if (isNaN(bpm) || bpm < 30) return alert('Por favor, ingresa un BPM válido.');
-            if (isNaN(totalBeats) || totalBeats < 1) return alert('Por favor, ingresa al menos 1 tiempo.');
+            if (isNaN(totalBeats) || totalBeats < 1) return alert('Por favor, ingresa al menos 1 tiempo por acorde.');
 
+            // Preparamos las luces antes de empezar
             setupLights();
+
             const intervalInMs = 60000 / bpm;
             upcomingChord = ''; 
             currentBeat = 1; 
@@ -420,12 +377,14 @@
             intervalId = setInterval(tick, intervalInMs);
         });
 
-        document.getElementById('stop-btn').addEventListener('click', () => {
+        btnStop.addEventListener('click', () => {
             if (intervalId) {
                 clearInterval(intervalId);
                 intervalId = null;
                 activeDisplay.innerText = '⏸️';
                 nextDisplay.innerText = '';
+                
+                // Apagamos todas las luces
                 document.querySelectorAll('.light').forEach(l => l.classList.remove('active-accent', 'active-beat'));
             }
         });
